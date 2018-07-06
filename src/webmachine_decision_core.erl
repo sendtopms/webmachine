@@ -22,6 +22,7 @@
 -author('Andy Gross <andy@basho.com>').
 -author('Bryan Fink <bryan@basho.com>').
 -export([handle_request/2]).
+-export([do_log/1]).
 -include("webmachine_logger.hrl").
 
 handle_request(Resource, ReqState) ->
@@ -29,10 +30,13 @@ handle_request(Resource, ReqState) ->
     put(resource, Resource),
     put(reqstate, ReqState),
     try
-        d(v3b13)
+      A=  d(v3b13),
+	    io:format("513This is loop ~p~n", [5555555]),
+	A
     catch
-        error:_ ->
-            error_response(erlang:get_stacktrace())
+        _error:_:St ->
+	    io:format("4444This is loop ~p~n", [St]),
+            error_response(St)
     end.
 
 wrcall(X) ->
@@ -44,7 +48,7 @@ wrcall(X) ->
 
 resource_call(Fun) ->
     Resource = get(resource),
-    {Reply, NewResource, NewRS} = webmachine_resource:do(Fun,get(),Resource),
+    {Reply, NewResource, NewRS} = webmachine_resource:do(Fun,get(), Resource),
     put(resource, NewResource),
     put(reqstate, NewRS),
     Reply.
@@ -96,7 +100,7 @@ finish_response({Code, _}=CodeAndPhrase, Resource, EndTime) ->
                                    end_time=EndTime,
                                    notes=Notes},
     spawn(fun() -> do_log(LogData) end),
-    webmachine_resource:stop(Resource).
+    Resource:stop().
 
 error_response(Reason) ->
     error_response(500, Reason).
@@ -121,6 +125,7 @@ error_response({Code, _}=CodeAndPhrase, Reason, Resource, EndTime) ->
     finish_response(CodeAndPhrase, Resource, EndTime).
 
 decision_test(Test,TestVal,TrueFlow,FalseFlow) ->
+  io:format("513This is loop ~p~n", [1113]),
     case Test of
         {error, Reason} -> error_response(Reason);
         {error, Reason0, Reason1} -> error_response({Reason0, Reason1});
@@ -156,6 +161,9 @@ log_decision(DecisionID) ->
 
 %% "Service Available"
 decision(v3b13) ->
+	    io:format("513This is loop ~p~n", [888]),
+    decision_test(resource_call(ping), pong, v3b13b, 503);
+decision(v3b13b) ->
     decision_test(resource_call(service_available), true, v3b12, 503);
 %% "Known method?"
 decision(v3b12) ->

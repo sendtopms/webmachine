@@ -17,18 +17,12 @@
 -module(webmachine).
 -author('Justin Sheehy <justin@basho.com>').
 -author('Andy Gross <andy@basho.com>').
--export([start/0, stop/0, new_request/2]).
+-export([start/0, stop/0]).
+-export([new_request/2]).
 
--type headers() :: webmachine_headers:t().
--type response_body() :: iodata()
-                       | {stream, StreamBody::any()}
-                       | {known_length_stream, non_neg_integer(), StreamBody::any()}
-                       | {stream, non_neg_integer(), fun()} %% TODO: type for fun()
-                       | {writer, WrtieBody::any()}
-                       | {file, IoDevice::any()}.
-
-
--export_type([headers/0, response_body/0]).
+-include("webmachine_logger.hrl").
+-include("wm_reqstate.hrl").
+-include("wm_reqdata.hrl").
 
 %% @spec start() -> ok
 %% @doc Start the webmachine server.
@@ -52,8 +46,53 @@ ensure_started(App) ->
 stop() ->
     application:stop(webmachine).
 
-new_request(mochiweb, MochiReq) ->
-    webmachine_mochiweb:new_webmachine_req(MochiReq).
+new_request(mochiweb, Request) ->
+	io:format("~n~n1TEst ~p~n", [1]),
+    Method = mochiweb_request:get(method, Request),
+	io:format("~n~n2TEst ~p~n", [Method]),
+    Scheme = mochiweb_request:get(scheme, Request),
+    Version = mochiweb_request:get(version, Request),
+    {Headers, RawPath} = case application:get_env(webmachine, rewrite_module) of
+        {ok, RewriteMod} ->
+            do_rewrite(RewriteMod,
+                       Method,
+                       Scheme,
+                       Version,
+                       mochiweb_request:get(headers, Request),
+                       mochiweb_request:get(raw_path, Request));
+        undefined ->
+            {mochiweb_request:get(headers, Request), mochiweb_request:get(raw_path, Request)}
+    end,
+    Socket = mochiweb_request:get(socket, Request),
+    InitState = #wm_reqstate{socket=Socket,
+                          reqdata=wrq:create(Method,Scheme,Version,RawPath,Headers)},
+
+    InitReq = {webmachine_request,InitState},
+    {Peer, _ReqState} = webmachine_request:get_peer(InitReq),
+    {Sock, ReqState} = webmachine_request:get_sock(InitReq),
+    ReqData = wrq:set_sock(Sock,
+                           wrq:set_peer(Peer,
+                                        ReqState#wm_reqstate.reqdata)),
+    LogData = #wm_log_data{start_time=os:timestamp(),
+                           method=Method,
+                           headers=Headers,
+                           peer=Peer,
+                           sock=Sock,
+                           path=RawPath,
+                           version=Version,
+                           response_code=404,
+                           response_length=0},
+    webmachine_request:new(ReqState#wm_reqstate{log_data=LogData,
+                                                reqdata=ReqData}).
+
+do_rewrite(RewriteMod, Method, Scheme, Version, Headers, RawPath) ->
+    case RewriteMod:rewrite(Method, Scheme, Version, Headers, RawPath) of
+        %% only raw path has been rewritten (older style rewriting)
+        NewPath when is_list(NewPath) -> {Headers, NewPath};
+
+        %% headers and raw path rewritten (new style rewriting)
+        {NewHeaders, NewPath} -> {NewHeaders,NewPath}
+    end.
 
 %%
 %% TEST
