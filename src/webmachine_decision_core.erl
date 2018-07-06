@@ -30,12 +30,9 @@ handle_request(Resource, ReqState) ->
     put(resource, Resource),
     put(reqstate, ReqState),
     try
-      A=  d(v3b13),
-	    io:format("513This is loop ~p~n", [5555555]),
-	A
+      d(v3b13)
     catch
         _error:_:St ->
-	    io:format("4444This is loop ~p~n", [St]),
             error_response(St)
     end.
 
@@ -125,7 +122,6 @@ error_response({Code, _}=CodeAndPhrase, Reason, Resource, EndTime) ->
     finish_response(CodeAndPhrase, Resource, EndTime).
 
 decision_test(Test,TestVal,TrueFlow,FalseFlow) ->
-  io:format("513This is loop ~p~n", [1113]),
     case Test of
         {error, Reason} -> error_response(Reason);
         {error, Reason0, Reason1} -> error_response({Reason0, Reason1});
@@ -161,7 +157,6 @@ log_decision(DecisionID) ->
 
 %% "Service Available"
 decision(v3b13) ->
-	    io:format("513This is loop ~p~n", [888]),
     decision_test(resource_call(ping), pong, v3b13b, 503);
 decision(v3b13b) ->
     decision_test(resource_call(service_available), true, v3b12, 503);

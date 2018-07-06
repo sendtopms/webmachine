@@ -37,7 +37,6 @@ start(Options) ->
     LoopFun = fun (X) ->
 					  loop(DGroup, X) end,
 	
-					  io:format("~nLoopFun ~p~n", [LoopFun]),
     mochiweb_http:start([{name, MochiName}, {loop, LoopFun} | OtherOptions]).
 
 stop() ->
@@ -64,23 +63,16 @@ loop(Name, MochiReq) ->
             handle_error(404, {none, none, []}, Req);
         {Mod, ModOpts, HostTokens, Port, PathTokens, Bindings,
          AppRoot, StringPath} ->
-  io:format("4This is loop ~p~n", [{Mod, StringPath}]),
-%%             BootstrapResource = webmachine_resource:new(x,x,x,x),
             {ok,RS1} = webmachine_request:load_dispatch_data(Bindings,HostTokens,Port,
                                               PathTokens,AppRoot,StringPath, Req),
-%%             XReq1 = {webmachine_request,RS1},
             try
                 {ok, Resource} = webmachine_resource:wrap(Mod, ModOpts),
                 {ok,RS2} = webmachine_request:set_metadata('resource_module',
                                               resource_module(Mod, ModOpts), RS1),
-  io:format("53This is loop ~p~n", [{Mod, StringPath}]),
                 webmachine_decision_core:handle_request(Resource, RS2)
             catch
                 error:Error ->
-  io:format("333This is loop ~p~n", [{Host, Path, DispatchList, Error}]),
-                    handle_error(500, {error, Error}, Req);
-				_:_:St ->
-					io:format("Error is ~p~n", [St])
+                    handle_error(500, {error, Error}, Req)
             end
     catch
         Type : Error ->

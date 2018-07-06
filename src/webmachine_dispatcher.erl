@@ -55,9 +55,7 @@ dispatch(HostAsString, PathAsString, DispatchList, RD) ->
                      _ -> 0
                  end,
     {Host, Port} = split_host_port(HostAsString, wrq:scheme(RD)),
-    A = try_host_binding(DispatchList, Host, Port, Path, ExtraDepth, RD),
-			  io:format("91This is loop ~p~n", [A]),
-	A.
+    try_host_binding(DispatchList, Host, Port, Path, ExtraDepth, RD).
 
 split_host_port(HostAsString, Scheme) ->
     case parse_port_from_host(HostAsString) of

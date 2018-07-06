@@ -17,32 +17,23 @@
 -module(webmachine_resource).
 -author('Justin Sheehy <justin@basho.com>').
 -author('Andy Gross <andy@basho.com>').
--export([new/3, wrap/2]).
+-export([new/4, wrap/2, wrap/3]).
 -export([do/3,log_d/2,stop/1]).
 
 -include("wm_resource.hrl").
 -include("wm_reqdata.hrl").
 -include("wm_reqstate.hrl").
 
--type t() :: #wm_resource{}.
--export_type([t/0]).
+new(R_Mod, R_ModState, R_ModExports, R_Trace) ->
+    {?MODULE, R_Mod, R_ModState, R_ModExports, R_Trace}.
 
--define(CALLBACK_ARITY, 2).
-
-new(R_Mod, R_ModState, R_Trace) ->
-    case erlang:module_loaded(R_Mod) of
-        false -> code:ensure_loaded(R_Mod);
-        true -> ok
-    end,
-    #wm_resource{
-       module = R_Mod,
-       modstate = R_ModState,
-       trace = R_Trace
-      }.
-
+default(ping) ->
+    no_default;
 default(service_available) ->
     true;
 default(resource_exists) ->
+    true;
+default(auth_required) ->
     true;
 default(is_authorized) ->
     true;
@@ -118,29 +109,30 @@ default(validate_content_checksum) ->
 default(_) ->
     no_default.
 
--spec wrap(module(), [any()]) ->
-                  {ok, t()} | {stop, bad_init_arg}.
+wrap(Mod, Args, {?MODULE, _, _, _, _}) ->
+    wrap(Mod, Args).
+
 wrap(Mod, Args) ->
     case Mod:init(Args) of
         {ok, ModState} ->
-            {ok, webmachine_resource:new(Mod, ModState, false)};
+            {ok, webmachine_resource:new(Mod, ModState,
+                           orddict:from_list(Mod:module_info(exports)), false)};
         {{trace, Dir}, ModState} ->
             {ok, File} = open_log_file(Dir, Mod),
             log_decision(File, v3b14),
             log_call(File, attempt, Mod, init, Args),
             log_call(File, result, Mod, init, {{trace, Dir}, ModState}),
-            {ok, webmachine_resource:new(Mod, ModState, File)};
+            {ok, webmachine_resource:new(Mod, ModState,
+                orddict:from_list(Mod:module_info(exports)), File)};
         _ ->
             {stop, bad_init_arg}
     end.
 
 do(#wm_resource{}=Res, Fun, ReqProps) ->
-    do(Fun, ReqProps, Res);
-do(Fun, ReqProps,
-   #wm_resource{
-      module=R_Mod,
-      trace=R_Trace
-     }=Req)
+    #wm_resource{module=R_Mod, modstate=R_ModState,
+                 modexports=R_ModExports, trace=R_Trace} = Res,
+    do(Fun, ReqProps, {?MODULE, R_Mod, R_ModState, R_ModExports, R_Trace});
+do(Fun, ReqProps, {?MODULE, R_Mod, _, R_ModExports, R_Trace}=Req)
   when is_atom(Fun) andalso is_list(ReqProps) ->
     case lists:keyfind(reqstate, 1, ReqProps) of
         false -> RState0 = undefined;
@@ -157,20 +149,15 @@ do(Fun, ReqProps,
     %% Do not need the embedded state anymore
     TrimData = ReqData#wm_reqdata{wm_state=undefined},
     {Reply,
-     webmachine_resource:new(R_Mod, NewModState, R_Trace),
+     webmachine_resource:new(R_Mod, NewModState, R_ModExports, R_Trace),
      ReqState#wm_reqstate{reqdata=TrimData}}.
 
-handle_wm_call(Fun, ReqData,
-               #wm_resource{
-                  module=R_Mod,
-                  modstate=R_ModState,
-                  trace=R_Trace
-                 }=Req) ->
+handle_wm_call(Fun, ReqData, {?MODULE,R_Mod,R_ModState,R_ModExports,R_Trace}=Req) ->
     case default(Fun) of
         no_default ->
             resource_call(Fun, ReqData, Req);
         Default ->
-            case erlang:function_exported(R_Mod, Fun, ?CALLBACK_ARITY) of
+            case orddict:is_key(Fun, R_ModExports) of
                 true ->
                     resource_call(Fun, ReqData, Req);
                 false ->
@@ -190,41 +177,35 @@ trim_trace([{M,F,[RD = #wm_reqdata{},S],_}|STRest]) ->
     [{M,F,[TrimRD,S]}|STRest];
 trim_trace(X) -> X.
 
-resource_call(F, ReqData,
-              #wm_resource{
-                 module=R_Mod,
-                 modstate=R_ModState,
-                 trace=R_Trace
-                }) ->
+resource_call(F, ReqData, {?MODULE, R_Mod, R_ModState, _, R_Trace}) ->
     case R_Trace of
         false -> nop;
         _ -> log_call(R_Trace, attempt, R_Mod, F, [ReqData, R_ModState])
     end,
     Result = try
-        %% Note: the argument list must match the definition of CALLBACK_ARITY
         apply(R_Mod, F, [ReqData, R_ModState])
-    catch C:R ->
-            Reason = {C, R, trim_trace(erlang:get_stacktrace())},
+    catch C:R:St ->
+            Reason = {C, R, trim_trace(St)},
             {{error, Reason}, ReqData, R_ModState}
     end,
-    case R_Trace of
+        case R_Trace of
         false -> nop;
         _ -> log_call(R_Trace, result, R_Mod, F, Result)
     end,
     Result.
 
 log_d(#wm_resource{}=Res, DecisionID) ->
-    log_d(DecisionID, Res);
-log_d(DecisionID,
-      #wm_resource{
-         trace=R_Trace
-        }) ->
+    #wm_resource{module=R_Mod, modstate=R_ModState,
+                 modexports=R_ModExports, trace=R_Trace} = Res,
+    log_d(DecisionID, {?MODULE, R_Mod, R_ModState, R_ModExports, R_Trace});
+log_d(DecisionID, {?MODULE, _, _, _, R_Trace}) ->
     case R_Trace of
         false -> nop;
         _ -> log_decision(R_Trace, DecisionID)
     end.
 
-stop(#wm_resource{trace=R_Trace}) -> close_log_file(R_Trace).
+stop(#wm_resource{trace=R_Trace}) -> close_log_file(R_Trace);
+stop({?MODULE, _, _, _, R_Trace}) -> close_log_file(R_Trace).
 
 log_call(File, Type, M, F, Data) ->
     io:format(File,

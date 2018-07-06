@@ -47,9 +47,7 @@ stop() ->
     application:stop(webmachine).
 
 new_request(mochiweb, Request) ->
-	io:format("~n~n1TEst ~p~n", [1]),
     Method = mochiweb_request:get(method, Request),
-	io:format("~n~n2TEst ~p~n", [Method]),
     Scheme = mochiweb_request:get(scheme, Request),
     Version = mochiweb_request:get(version, Request),
     {Headers, RawPath} = case application:get_env(webmachine, rewrite_module) of
